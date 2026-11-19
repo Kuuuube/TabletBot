@@ -1,4 +1,5 @@
 use regex::{Match, Regex};
+use ::serenity::all::prelude::CacheHttp;
 use std::str::FromStr;
 use std::{path::Path, sync::OnceLock};
 
@@ -11,19 +12,19 @@ const ACCENT_COLOUR: Colour = Colour::new(0x8957e5);
 
 pub async fn message(ctx: &Context, message: &Message) {
     if let Some(embeds) = get_embeds(ctx, message).await {
-        let typing = message.channel_id.start_typing(&ctx.http);
+        let typing = message.channel_id.start_typing(ctx.http.clone());
 
         let content = serenity::CreateMessage::default()
             .embeds(embeds)
             .reference_message(message);
-        let _ = message.channel_id.send_message(ctx, content).await;
+        let _ = message.channel_id.send_message(ctx.http(), content).await;
 
         typing.stop();
     }
 }
 
-async fn get_embeds(ctx: &Context, message: &Message) -> Option<Vec<CreateEmbed>> {
-    let typing = message.channel_id.start_typing(&ctx.http);
+async fn get_embeds<'a>(ctx: &'a Context, message: &'a Message) -> Option<Vec<CreateEmbed<'a>>> {
+    let typing = message.channel_id.start_typing(ctx.http.clone());
     let mut embeds: Vec<CreateEmbed> = vec![];
 
     if let Some(refs) = FileReference::try_from_str(&message.content) {
@@ -97,26 +98,6 @@ impl FileReference<'_> {
         if files.is_empty() { None } else { Some(files) }
     }
 
-    pub async fn create_embed(&self) -> Option<CreateEmbed> {
-        let extension = self.get_extension();
-
-        if let Some(mut content) = self.display().await {
-            content.shrink_to(4096 - 8 - extension.len());
-
-            let description = format!("```{extension}\n{content}\n```");
-
-            let mut default = CreateEmbed::default();
-            default = default
-                .title(self.path)
-                .description(description)
-                .colour(ACCENT_COLOUR);
-
-            Some(default)
-        } else {
-            None
-        }
-    }
-
     fn get_extension(&self) -> String {
         Path::new(self.path)
             .extension()
@@ -145,6 +126,28 @@ impl FileReference<'_> {
             } else {
                 Some(lines[start].trim_start().to_string())
             }
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> FileReference<'a> {
+    pub async fn create_embed(self) -> Option<CreateEmbed<'a>> {
+        let extension = self.get_extension();
+
+        if let Some(mut content) = self.display().await {
+            content.shrink_to(4096 - 8 - extension.len());
+
+            let description = format!("```{extension}\n{content}\n```");
+
+            let mut default = CreateEmbed::default();
+            default = default
+                .title(self.path)
+                .description(description)
+                .colour(ACCENT_COLOUR);
+
+            Some(default)
         } else {
             None
         }

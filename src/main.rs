@@ -28,7 +28,6 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     match error {
-        poise::FrameworkError::Setup { error, .. } => panic!("Failed to start bot: {error:?}"),
         poise::FrameworkError::Command { ctx, error, .. } => {
             let error = error.to_string();
             eprintln!("An error occured in a command: {error}");
@@ -70,7 +69,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 async fn main() {
     let _ = dotenvy::dotenv();
 
-    let discord_token = env::var("DISCORD_TOKEN").expect("Expected discord api token");
+    let discord_token = serenity::Token::from_env("DISCORD_TOKEN").expect("Expected discord api token");
     let github_token = env::var("GITHUB_TOKEN").expect("Expected github api token");
 
     let octo_builder = Octocrab::builder().personal_token(github_token);
@@ -80,30 +79,14 @@ async fn main() {
     let state = RwLock::new(BotState::read());
 
     let options = poise::FrameworkOptions {
-        commands: vec![
-            commands::register(),
-            commands::snippets::snippet(),
-            commands::snippets::create_snippet(),
-            commands::snippets::remove_snippet(),
-            commands::snippets::export_snippet(),
-            commands::snippets::list_snippets(),
-            commands::snippets::edit_snippet(),
-            commands::utils::embed(),
-            commands::utils::edit_embed(),
-            commands::utils::add_repo(),
-            commands::utils::remove_repo(),
-            commands::utils::list_repos(),
-            commands::udev::generate_udev(),
-        ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),
             edit_tracker: Some(Arc::new(poise::EditTracker::for_timespan(
-                Duration::from_mins(10),
+                Duration::from_secs(600),
             ))),
             ..Default::default()
         },
         on_error: |error| Box::pin(on_error(error)),
-
         pre_command: |ctx| {
             Box::pin(async move {
                 println!("Executing command {}...", ctx.command().qualified_name);
@@ -111,32 +94,22 @@ async fn main() {
         },
 
         skip_checks_for_owners: false,
-        event_handler: |ctx, event: &serenity::FullEvent| {
-            Box::pin(events::event_handler(
-                ctx.serenity_context,
-                event,
-                ctx.user_data,
-            ))
-        },
         ..Default::default()
     };
 
-    let framework = poise::Framework::new(options, move |ctx, ready, framework| {
-        Box::pin(async move {
-            println!("Logged in as {}", ready.user.name);
-            poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-            Ok(Data { octocrab, state })
-        })
-    });
+    let framework = poise::Framework::new(options);
 
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
 
-    let http = serenity::Http::new(&discord_token);
 
-    let mut client = serenity::ClientBuilder::new_with_http(http, intents)
-        .framework(framework)
+    let http = serenity::Http::new(discord_token.clone());
+
+    let mut client = serenity::ClientBuilder::new_with_http(discord_token, http.into(), intents)
+        .framework(Box::new(framework))
+        .event_handler(Arc::new(events::Handler))
+        .data(Arc::new(Data { octocrab, state }))
         .await
         .unwrap();
 

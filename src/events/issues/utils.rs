@@ -16,24 +16,24 @@ pub(super) trait Document {
 }
 
 impl Embeddable for Issue {
-    fn embed(&self) -> CreateEmbed {
+    fn embed<'a>(self) -> CreateEmbed<'a> {
         let default = CreateEmbed::default();
-        let author = CreateEmbedAuthor::new(&self.user.login)
-            .url(self.user.url.clone())
-            .icon_url(self.user.avatar_url.clone());
+        let author = CreateEmbedAuthor::new(self.user.login.clone())
+            .url(self.user.url.to_string())
+            .icon_url(self.user.avatar_url.to_string());
         let mut embed = default
             .title(self.get_title())
             .description(self.get_content())
-            .url(self.html_url.as_str())
+            .url(self.html_url.to_string())
             .colour(self.get_colour())
             .author(author);
 
-        if let Some(milestone) = &self.milestone {
-            embed = embed.field("Milestone", &milestone.title, true);
-        }
-
         if let Some(labels) = self.get_labels() {
             embed = embed.field("Labels", labels, true);
+        }
+
+        if let Some(milestone) = self.milestone {
+            embed = embed.field("Milestone", milestone.title, true);
         }
 
         embed
@@ -80,7 +80,7 @@ impl Document for Issue {
 }
 
 impl Embeddable for PullRequest {
-    fn embed(&self) -> CreateEmbed {
+    fn embed<'a>(self) -> CreateEmbed<'a> {
         let mut description = self.body.clone().unwrap_or_default();
         description.shrink_to(4096);
 
@@ -92,21 +92,21 @@ impl Embeddable for PullRequest {
 
         if let Some(user) = &self.user {
             let author = CreateEmbedAuthor::new(user.login.clone())
-                .url(user.url.clone())
-                .icon_url(user.avatar_url.clone());
+                .url(user.url.to_string())
+                .icon_url(user.avatar_url.to_string());
             embed = embed.author(author);
         }
 
         if let Some(url) = &self.html_url {
-            embed = embed.url(url.as_str());
-        }
-
-        if let Some(milestone) = &self.milestone {
-            embed = embed.field("Milestone", &milestone.title, true);
+            embed = embed.url(url.to_string());
         }
 
         if let Some(labels) = self.get_labels() {
             embed = embed.field("Labels", labels, true);
+        }
+
+        if let Some(milestone) = self.milestone {
+            embed = embed.field("Milestone", milestone.title, true);
         }
 
         embed

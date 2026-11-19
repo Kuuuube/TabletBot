@@ -25,7 +25,7 @@ pub async fn register(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn respond_embed(ctx: &Context<'_>, embed: CreateEmbed, ephemeral: bool) {
+pub async fn respond_embed(ctx: &Context<'_>, embed: CreateEmbed<'_>, ephemeral: bool) {
     let builder = poise::CreateReply::default()
         .embed(embed)
         .ephemeral(ephemeral);
@@ -65,7 +65,7 @@ pub async fn interaction_err(ctx: &serenity::Context, press: &ComponentInteracti
             )
             .ephemeral(true),
     );
-    let _ = press.create_response(ctx, builder).await;
+    let _ = press.create_response(&ctx.http, builder).await;
 }
 
 enum Kind {
@@ -102,10 +102,12 @@ pub async fn paginate_lists(
 
     let colour = Colour::TEAL;
 
-    let components = CreateActionRow::Buttons(vec![
-        CreateButton::new(&*prev_button_id).emoji('◀'),
-        CreateButton::new(&*next_button_id).emoji('▶'),
-    ]);
+    let components = serenity::CreateComponent::ActionRow(
+            CreateActionRow::buttons(vec![
+            CreateButton::new(&*prev_button_id).emoji('◀'),
+            CreateButton::new(&*next_button_id).emoji('▶'),
+        ])
+    );
     let mut current_page = 0;
 
     // Don't paginate if its one page.
@@ -135,7 +137,7 @@ pub async fn paginate_lists(
     let msg = ctx.send(reply).await?;
 
     if pages.len() > 1 {
-        while let Some(press) = ComponentInteractionCollector::new(ctx)
+        while let Some(press) = ComponentInteractionCollector::new(ctx.serenity_context())
             .filter(move |press| press.data.custom_id.starts_with(&ctx_id.to_string()))
             .timeout(std::time::Duration::from_mins(3))
             .await
@@ -155,7 +157,7 @@ pub async fn paginate_lists(
 
             press
                 .create_response(
-                    ctx.serenity_context(),
+                    ctx.http(),
                     CreateInteractionResponse::UpdateMessage(
                         CreateInteractionResponseMessage::new().embed(
                             serenity::CreateEmbed::new()

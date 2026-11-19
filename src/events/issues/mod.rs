@@ -8,6 +8,7 @@ use poise::serenity_prelude::{
     CreateInteractionResponse, Message, Permissions,
 };
 use regex::Regex;
+use ::serenity::all::prelude::CacheHttp;
 use to_arraystring::ToArrayString;
 
 const DEFAULT_REPO_OWNER: &str = "OpenTabletDriver";
@@ -34,7 +35,7 @@ impl Kind {
 
 pub async fn message(data: &Data, ctx: &Context, message: &Message) {
     if let Some(embeds) = issue_embeds(data, message).await {
-        let typing = message.channel_id.start_typing(&ctx.http);
+        let typing = message.channel_id.start_typing(ctx.http.clone());
 
         // usually I would use poise context to generate a unique id, but its not available
         // on events, but we also aren't handling different invocation of this on a single message,
@@ -55,24 +56,28 @@ pub async fn message(data: &Data, ctx: &Context, message: &Message) {
         hide_body_id.push_str(&ctx_id);
         hide_body_id.push_str("hide_body");
 
-        let remove = CreateActionRow::Buttons(vec![
-            CreateButton::new(&*remove_id)
-                .label("delete")
-                .style(ButtonStyle::Danger),
-        ]);
+        let remove = serenity::CreateComponent::ActionRow(
+            CreateActionRow::buttons(vec![
+                CreateButton::new(&*remove_id)
+                    .label("delete")
+                    .style(ButtonStyle::Danger),
+            ])
+        );
 
-        let components = serenity::CreateActionRow::Buttons(vec![
-            CreateButton::new(&*remove_id)
-                .label("delete")
-                .style(ButtonStyle::Danger),
-            CreateButton::new(&*hide_body_id).label("hide body"),
-        ]);
+        let components = serenity::CreateComponent::ActionRow(
+            serenity::CreateActionRow::buttons(vec![
+                CreateButton::new(&*remove_id)
+                    .label("delete")
+                    .style(ButtonStyle::Danger),
+                CreateButton::new(&*hide_body_id).label("hide body"),
+            ])
+        );
 
         let content: serenity::CreateMessage = serenity::CreateMessage::default()
             .embeds(embeds)
             .reference_message(message)
             .components(vec![components]);
-        let msg_result = message.channel_id.send_message(ctx, content).await;
+        let msg_result = message.channel_id.send_message(ctx.http(), content).await;
         typing.stop();
 
         let mut msg_deleted = false;
@@ -103,10 +108,10 @@ pub async fn message(data: &Data, ctx: &Context, message: &Message) {
             match Kind::from_id(&press.data.custom_id, &ctx_id) {
                 Some(Kind::Delete) => {
                     let _ = press
-                        .create_response(ctx, CreateInteractionResponse::Acknowledge)
+                        .create_response(ctx.http(), CreateInteractionResponse::Acknowledge)
                         .await;
                     if let Ok(ref msg) = msg_result {
-                        let _ = msg.delete(ctx).await;
+                        let _ = msg.delete(ctx.http(), None).await;
                     }
                     msg_deleted = true;
                 }
@@ -123,7 +128,7 @@ pub async fn message(data: &Data, ctx: &Context, message: &Message) {
 
                         let _ = press
                             .create_response(
-                                ctx,
+                                ctx.http(),
                                 serenity::CreateInteractionResponse::UpdateMessage(
                                     serenity::CreateInteractionResponseMessage::new()
                                         .embeds(hid_body_embeds)
@@ -147,7 +152,7 @@ pub async fn message(data: &Data, ctx: &Context, message: &Message) {
     }
 }
 
-async fn issue_embeds(data: &Data, message: &Message) -> Option<Vec<CreateEmbed>> {
+async fn issue_embeds<'a>(data: &'a Data, message: &'a Message) -> Option<Vec<CreateEmbed<'a>>> {
     let mut embeds: Vec<CreateEmbed> = vec![];
     let client = octocrab::instance();
     let ratelimit = client.ratelimit();

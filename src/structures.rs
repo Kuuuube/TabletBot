@@ -1,5 +1,4 @@
 use poise::serenity_prelude::CreateEmbed;
-use poise::serenity_prelude::prelude::TypeMapKey;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
 use std::collections::HashMap;
@@ -8,7 +7,7 @@ use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 
 pub trait Embeddable {
-    fn embed(&self) -> CreateEmbed;
+    fn embed<'a>(self) -> CreateEmbed<'a>;
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -28,10 +27,6 @@ impl Snippet {
 pub struct BotState {
     pub snippets: Vec<Snippet>,
     pub issue_prefixes: HashMap<String, RepositoryDetails>,
-}
-
-impl TypeMapKey for BotState {
-    type Value = BotState;
 }
 
 #[derive(Deserialize, Clone, Serialize, Default)]

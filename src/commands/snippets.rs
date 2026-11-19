@@ -1,3 +1,5 @@
+use std::vec;
+
 use crate::{
     Context, Error,
     commands::{respond_embed, respond_err, respond_ok},
@@ -12,7 +14,7 @@ use poise::serenity_prelude::{
 async fn autocomplete_snippet<'a>(
     ctx: Context<'a>,
     partial: &'a str,
-) -> CreateAutocompleteResponse {
+) -> CreateAutocompleteResponse<'a> {
     let snippet_list: Vec<String> = {
         ctx.data()
             .state
@@ -28,8 +30,8 @@ async fn autocomplete_snippet<'a>(
         snippet_list
             .iter()
             .filter(|name| name.to_lowercase().contains(&partial.to_lowercase()))
-            .map(|name| AutocompleteChoice::new(name, name.clone()))
-            .collect(),
+            .map(|name| AutocompleteChoice::new(name.to_string(), name.clone()))
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -69,22 +71,24 @@ pub async fn create_snippet(
     #[description = "The snippet's title"] title: String,
     #[description = "The snippet's content"] content: String,
 ) -> Result<(), Error> {
-    let embed = {
-        let mut rwlock_guard = ctx.data().state.write().unwrap();
+    let snippet = Snippet {
+        id,
+        title,
+        content: content.replace(r"\n", "\n"),
+    };
 
-        if let Some(position) = rwlock_guard.snippets.iter().position(|s| s.id.eq(&id)) {
+    let embed = {
+
+        let data = ctx.data();
+        let mut rwlock_guard = data.state.write().unwrap();
+
+        if let Some(position) = rwlock_guard.snippets.iter().position(|s| s.id.eq(&snippet.id)) {
             rwlock_guard.snippets.remove(position);
         }
 
-        let snippet = Snippet {
-            id,
-            title,
-            content: content.replace(r"\n", "\n"),
-        };
-
         println!("New snippet created '{}: {}'", snippet.id, snippet.title);
 
-        let mut embed = snippet.embed();
+        let mut embed = snippet.clone().embed();
 
         embed = embed.colour(super::OK_COLOUR);
 
@@ -120,7 +124,8 @@ pub async fn edit_snippet(
             }
 
             {
-                let mut rwlock_guard = ctx.data().state.write().unwrap();
+                let data = ctx.data();
+                let mut rwlock_guard = data.state.write().unwrap();
                 rwlock_guard.snippets.push(snippet.clone());
                 println!("Snippet edited '{}: {}'", snippet.title, snippet.content);
                 rwlock_guard.write();
@@ -227,10 +232,10 @@ pub async fn export_snippet(
 }
 
 impl Embeddable for Snippet {
-    fn embed(&self) -> CreateEmbed {
+    fn embed<'a>(self) -> CreateEmbed<'a> {
         CreateEmbed::default()
-            .title(&self.title)
-            .description(&self.content)
+            .title(self.title)
+            .description(self.content)
             .colour(super::ACCENT_COLOUR)
             .clone()
     }
@@ -276,18 +281,20 @@ fn rm_snippet(ctx: &Context<'_>, snippet: &Snippet) {
 }
 
 async fn remove_snippet_confirm(ctx: &Context<'_>, snippet: &Snippet) -> Result<(), Error> {
-    let snippet_embed = snippet.embed();
+    let snippet_embed = snippet.clone().embed();
 
     let ctx_id = ctx.id();
     let delete_id = format!("{ctx_id}cancel");
     let cancel_id = format!("{ctx_id}delete");
 
-    let components = serenity::CreateActionRow::Buttons(vec![
-        serenity::CreateButton::new(&cancel_id).label("Cancel"),
-        serenity::CreateButton::new(&delete_id)
-            .label("Delete")
-            .style(serenity::ButtonStyle::Danger),
-    ]);
+    let components = serenity::CreateComponent::ActionRow(
+        serenity::CreateActionRow::buttons(vec![
+            serenity::CreateButton::new(&cancel_id).label("Cancel"),
+            serenity::CreateButton::new(&delete_id)
+                .label("Delete")
+                .style(serenity::ButtonStyle::Danger),
+        ])
+    );
 
     let builder: poise::CreateReply = poise::CreateReply::default()
         .content(format!(
@@ -300,7 +307,7 @@ async fn remove_snippet_confirm(ctx: &Context<'_>, snippet: &Snippet) -> Result<
 
     ctx.send(builder).await?;
 
-    while let Some(press) = serenity::ComponentInteractionCollector::new(ctx)
+    while let Some(press) = serenity::ComponentInteractionCollector::new(ctx.serenity_context())
         .filter(move |press| press.data.custom_id.starts_with(&ctx_id.to_string()))
         .timeout(std::time::Duration::from_mins(1))
         .await
@@ -323,7 +330,7 @@ async fn handle_delete(
     rm_snippet(ctx, snippet);
     interaction
         .create_response(
-            ctx,
+            ctx.http(),
             CreateInteractionResponse::UpdateMessage(
                 CreateInteractionResponseMessage::new()
                     .content("Deleted!")
@@ -346,7 +353,7 @@ async fn handle_cancel(
 ) -> Result<(), Error> {
     interaction
         .create_response(
-            ctx,
+            ctx.http(),
             CreateInteractionResponse::UpdateMessage(
                 CreateInteractionResponseMessage::new()
                     .content("Aborted.")
